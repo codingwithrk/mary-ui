@@ -10,8 +10,17 @@ class Avatar extends Component
 {
     public string $uuid;
 
+    /**
+     * @param  ?string  $image  The URL of the avatar image.
+     * @param  ?string  $placeholder  The placeholder of the avatar.
+     * @param  ?string  $title  The title text displayed beside the avatar.
+     * @slot  ?string  $title  The title text displayed beside the avatar.
+     * @param  ?string  $subtitle  The subtitle text displayed beside the avatar.
+     * @slot  ?string  $subtitle The subtitle text displayed beside the avatar.
+     */
     public function __construct(
         public ?string $image = '',
+        public ?string $placeholder = '',
 
         // Slots
         public ?string $title = null,
@@ -25,9 +34,13 @@ class Avatar extends Component
     {
         return <<<'HTML'
             <div class="flex items-center gap-2">
-                <div class="avatar">
-                    <div {{ $attributes->class(["w-7 rounded-full"]) }}>
-                        <img src="{{ $image }}" />
+                <div class="avatar @if(empty($image)) placeholder @endif">
+                    <div {{ $attributes->class(["w-7 rounded-full", "bg-neutral text-neutral-content" => empty($image)]) }}>
+                        @if(empty($image))
+                            <span class="text-xs">{{ $placeholder }}</span>
+                        @else
+                            <img src="{{ $image }}" />
+                        @endif
                     </div>
                 </div>
                 @if($title || $subtitle)

@@ -7,6 +7,7 @@ use Closure;
 use Exception;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\View\Component;
 
@@ -25,6 +26,7 @@ class Table extends Component
         public ?string $selectableKey = 'id',
         public ?bool $expandable = false,
         public ?string $expandableKey = 'id',
+        public mixed $expandableCondition = null,
         public ?string $link = null,
         public ?bool $withPagination = false,
         public ?string $perPage = null,
@@ -34,6 +36,8 @@ class Table extends Component
         public ?array $cellDecoration = [],
         public ?bool $showEmptyText = false,
         public mixed $emptyText = 'No records found.',
+        public string $containerClass = 'overflow-x-auto',
+        public ?bool $noHover = false,
 
         // Slots
         public mixed $actions = null,
@@ -47,13 +51,15 @@ class Table extends Component
             throw new Exception("You can not combine `expandable` with `selectable`.");
         }
 
-        // Temp decoration
+        // Temp
         $rowDecoration = $this->rowDecoration;
         $cellDecoration = $this->cellDecoration;
+        $headers = $this->headers;
 
-        // Remove decoration from serialization, because they are closures.
+        // Remove them from serialization, because they are closures.
         unset($this->rowDecoration);
         unset($this->cellDecoration);
+        unset($this->headers);
 
         // Serialize
         $this->uuid = "mary" . md5(serialize($this));
@@ -61,17 +67,17 @@ class Table extends Component
         // Put them back
         $this->rowDecoration = $rowDecoration;
         $this->cellDecoration = $cellDecoration;
+        $this->headers = $headers;
     }
 
     // Get all ids for selectable and expandable features
     public function getAllIds(): array
     {
-        // Pagination
-        if ($this->rows instanceof ArrayAccess) {
-            return $this->rows->pluck($this->selectableKey)->all();
+        if (is_array($this->rows)) {
+            return collect($this->rows)->pluck($this->selectableKey)->all();
         }
 
-        return collect($this->rows)->pluck($this->selectableKey)->all();
+        return $this->rows->pluck($this->selectableKey)->all();
     }
 
     // Check if header is sortable
@@ -84,6 +90,30 @@ class Table extends Component
     public function isHidden(mixed $header): bool
     {
         return $header['hidden'] ?? false;
+    }
+
+    // Format header
+    public function format(mixed $row, mixed $field, mixed $header): mixed
+    {
+        $format = $header['format'] ?? null;
+
+        if (!$format){
+            return $field;
+        }
+
+        if (is_callable($format)){
+            return $format($row, $field);
+        }
+
+        if ($format[0] == 'currency') {
+            return ($format[2] ?? '').number_format($field, ...str_split($format[1]));
+        }
+
+        if ($format[0] == 'date' && $field) {
+            return Carbon::parse($field)->format($format[1]);
+        }
+
+        return $field;
     }
 
     // Check if link should be shown in cell
@@ -114,7 +144,7 @@ class Table extends Component
         }
 
         $direction = $this->isSortedBy($header)
-            ? $this->sortBy['direction'] == 'asc' ? 'desc' : 'asc'
+            ? ($this->sortBy['direction'] == 'asc') ? 'desc' : 'asc'
             : 'asc';
 
         return ['column' => $header['sortBy'] ?? $header['key'], 'direction' => $direction];
@@ -170,6 +200,13 @@ class Table extends Component
         return is_string($this->getAllIds()[0] ?? null) ? "" : ".number";
     }
 
+    public function getKeyValue($row, $key): mixed
+    {
+        $value = data_get($row, $this->$key);
+
+        return is_numeric($value) && ! str($value)->startsWith('0') ? $value : "'$value'";
+    }
+
     public function render(): View|Closure|string
     {
         return <<<'HTML'
@@ -189,7 +226,7 @@ class Table extends Component
                                     return this.selection.includes(key)
                                 },
                                 isPageFullSelected() {
-                                    return [...this.selection]
+                                    return this.pageIds.length && [...this.selection]
                                                 .sort((a, b) => b - a)
                                                 .toString()
                                                 .includes([...this.pageIds].sort((a, b) => b - a).toString())
@@ -221,14 +258,15 @@ class Table extends Component
                                 }
                              }"
                 >
-                <div class="overflow-x-auto">
+                <div class="{{ $containerClass }}" x-classes="overflow-x-auto">
                 <table
                         {{
                             $attributes
-                                ->except('wire:model')
+                                ->whereDoesntStartWith('wire:model')
                                 ->class([
                                     'table',
                                     'table-zebra' => $striped,
+                                    '[&_tr:nth-child(4n+3)]:bg-base-200' => $striped && $expandable,
                                     'cursor-pointer' => $attributes->hasAny(['@row-click', 'link'])
                                 ])
                         }}
@@ -244,6 +282,7 @@ class Table extends Component
                                             type="checkbox"
                                             class="checkbox checkbox-sm"
                                             x-ref="mainCheckbox"
+                                            x-bind:disabled="pageIds.length === 0"
                                             @click="toggleCheckAll($el.checked)" />
                                     </th>
                                 @endif
@@ -290,7 +329,7 @@ class Table extends Component
                             @foreach($rows as $k => $row)
                                 <tr
                                     wire:key="{{ $uuid }}-{{ $k }}"
-                                    class="hover:bg-base-200/50 {{ $rowClasses($row) }}"
+                                    @class([$rowClasses($row), "hover:bg-base-200/50" => !$noHover])
                                     @if($attributes->has('@row-click'))
                                         @click="$dispatch('row-click', {{ json_encode($row) }});"
                                     @endif
@@ -311,11 +350,13 @@ class Table extends Component
                                     <!-- EXPAND ICON -->
                                     @if($expandable)
                                         <td class="w-1 pe-0">
-                                            <x-mary-icon
-                                                name="o-chevron-down"
-                                                ::class="isExpanded('{{ data_get($row, $expandableKey) }}') || '-rotate-90 !text-current !bg-base-200'"
-                                                class="cursor-pointer p-2 w-8 h-8 bg-base-300 rounded-lg"
-                                                @click="toggleExpand('{{ data_get($row, $expandableKey) }}');" />
+                                            @if(data_get($row, $expandableCondition))
+                                                <x-mary-icon
+                                                    name="o-chevron-down"
+                                                    ::class="isExpanded({{ $getKeyValue($row, 'expandableKey') }}) || '-rotate-90 !text-current'"
+                                                    class="cursor-pointer p-2 w-8 h-8 bg-base-300 rounded-lg"
+                                                    @click="toggleExpand({{ $getKeyValue($row, 'expandableKey') }});" />
+                                            @endif
                                         </td>
                                      @endif
 
@@ -349,7 +390,7 @@ class Table extends Component
                                                     <a href="{{ $redirectLink($row) }}" wire:navigate class="block py-3 px-4">
                                                 @endif
 
-                                                {{ data_get($row, $header['key']) }}
+                                                {{ $format($row, data_get($row, $header['key']), $header) }}
 
                                                 @if($hasLink($header))
                                                     </a>
@@ -366,7 +407,7 @@ class Table extends Component
 
                                 <!-- EXPANSION SLOT -->
                                 @if($expandable)
-                                    <tr wire:key="{{ $uuid }}-{{ $k }}--expand" :class="isExpanded('{{ data_get($row, $expandableKey) }}') || 'hidden'">
+                                    <tr wire:key="{{ $uuid }}-{{ $k }}--expand" class="!bg-inherit" :class="isExpanded({{ $getKeyValue($row, 'expandableKey') }}) || 'hidden'">
                                         <td :colspan="colspanSize">
                                             {{ $expansion($row) }}
                                         </td>

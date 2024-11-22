@@ -30,6 +30,7 @@ class ChoicesOffline extends Component
         public ?string $optionLabel = 'name',
         public ?string $optionSubLabel = '',
         public ?string $optionAvatar = 'avatar',
+        public ?bool $valuesAsString = false,
         public ?string $height = 'max-h-64',
         public Collection|array $options = new Collection(),
         public ?string $noResultText = 'No results found.',
@@ -79,6 +80,10 @@ class ChoicesOffline extends Component
     public function getOptionValue($option): mixed
     {
         $value = data_get($option, $this->optionValue);
+
+        if ($this->valuesAsString) {
+            return "'$value'";
+        }
 
         return is_numeric($value) && ! str($value)->startsWith('0') ? $value : "'$value'";
     }
@@ -151,7 +156,7 @@ class ChoicesOffline extends Component
                                     ? this.selection == id
                                     : this.selection.includes(id)
                             },
-                            toggle(id) {
+                            toggle(id, keepOpen = false) {
                                 if (this.isReadonly || this.isDisabled) {
                                     return
                                 }
@@ -167,7 +172,10 @@ class ChoicesOffline extends Component
                                 }
 
                                 this.dispatchChangeEvent({ value: this.selection })
-                                this.$refs.searchInput.focus()
+
+                                if (!keepOpen) {
+                                    this.$refs.searchInput.focus()
+                                }
                             },
                             lookup() {
                                 Array.from(this.$refs.choicesOptions.children).forEach(child => {
@@ -185,6 +193,9 @@ class ChoicesOffline extends Component
                                 this.$refs.searchInput.dispatchEvent(new CustomEvent('change-selection', { bubbles: true, detail }))
                             }
                         }"
+
+                        @keydown.up="$focus.previous()"
+                        @keydown.down="$focus.next()"
                     >
                         <!-- STANDARD LABEL -->
                         @if($label)
@@ -268,11 +279,19 @@ class ChoicesOffline extends Component
                                 x-model="search"
                                 @keyup="lookup()"
                                 @input="focus()"
+                                @keydown.arrow-down.prevent="focus()"
                                 :required="isRequired && isSelectionEmpty"
                                 :readonly="isReadonly || isDisabled || ! isSearchable"
                                 :class="(isReadonly || isDisabled || !isSearchable || !focused) && '!w-1'"
                                 class="outline-none mt-0.5 bg-transparent w-20"
                              />
+
+                            <!-- PLACEHOLDER -->
+                            @if (!$compact && $attributes->has('placeholder'))
+                                <span @class(["absolute inset-0 mt-2.5 me-8 truncate text-base text-gray-400 pointer-events-none", $icon ? "ms-10" : "ms-4"]) x-show="!focused && isSelectionEmpty">
+                                    {{ $attributes->get('placeholder') }}
+                                </span>
+                            @endif
                         </div>
 
 
@@ -317,10 +336,12 @@ class ChoicesOffline extends Component
                                         <div
                                             id="option-{{ $uuid }}-{{ data_get($option, $optionValue) }}"
                                             wire:key="option-{{ data_get($option, $optionValue) }}"
-                                            @click="toggle({{ $getOptionValue($option) }})"
+                                            @click="toggle({{ $getOptionValue($option) }}, true)"
+                                            @keydown.enter="toggle({{ $getOptionValue($option) }}, true)"
                                             :class="isActive({{ $getOptionValue($option) }}) && 'border-s-4 border-s-primary'"
                                             search-value="{{ data_get($option, $optionLabel) }}"
-                                            class="border-s-4"
+                                            class="border-s-4 focus:bg-base-200 focus:outline-none"
+                                            tabindex="0"
                                         >
                                             <!-- ITEM SLOT -->
                                             @if($item)
