@@ -24,7 +24,7 @@ class Drawer extends Component
         //Slots
         public ?string $actions = null
     ) {
-        $this->uuid = "mary" . md5(serialize($this));
+        $this->uuid = "mary" . md5(serialize($this)) . $id;
     }
 
     public function id(): string
@@ -55,6 +55,8 @@ class Drawer extends Component
                         }
                     }"
 
+                    x-init="$watch('open', value => { if (!value){ $dispatch('close') }else{ $dispatch('open') } })"
+
                     @if($closeOnEscape)
                         @keydown.window.escape="close()"
                     @endif
@@ -64,6 +66,8 @@ class Drawer extends Component
                     @endif
 
                     @class(["drawer absolute z-50", "drawer-end" => $right])
+
+                    {{ $attributes->whereStartsWith('@') }}
                 >
                     <!-- Toggle visibility  -->
                     <input
@@ -87,7 +91,7 @@ class Drawer extends Component
                         >
                             @if($withCloseButton)
                                 <x-slot:menu>
-                                    <x-mary-button icon="o-x-mark" class="btn-ghost btn-sm" @click="close()" />
+                                    <x-mary-button icon="o-x-mark" class="btn-ghost btn-sm btn-circle" @click="close()" />
                                 </x-slot:menu>
                             @endif
 
